@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Premium 3D Solar System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      @font-face {
+        font-family: 'LucideIcons';
+        src: url(https://cdn.jsdelivr.net/npm/lucide-static@latest/font/Lucide.ttf) format('truetype');
+      }
+      .lucide {
+        font-family: 'LucideIcons', sans-serif;
+        font-size: 1.5rem;
+        line-height: 1;
+      }
+      body {
+        margin: 0;
+        overflow: hidden;
+        background-color: #000000;
+        font-family: 'Inter', sans-serif;
+        color: #fff;
+      }
+      #info-modal {
+        z-index: 100;
+      }
+      canvas {
+        display: block;
+        position: fixed;
+        top: 0;
+        left: 0;
+        z-index: 1;
+      }
+      #loading-screen {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: #000000;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        z-index: 200;
+        color: white;
+        font-size: 1.5rem;
+        text-align: center;
+      }
+      #loading-progress {
+        margin-top: 1rem;
+        font-size: 1rem;
+        color: #ccc;
+      }
+      #controls-container {
+        position: fixed;
+        bottom: 10px;
+        left: 10px;
+        background-color: rgba(0, 0, 0, 0.5);
+        padding: 8px;
+        border-radius: 8px;
+        z-index: 50;
+        color: white;
+        font-size: 0.8rem;
+      }
+      #controls-container label {
+        margin-right: 5px;
+        vertical-align: middle;
+      }
+      #controls-container input {
+        vertical-align: middle;
+      }
+    </style>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+            },
+          },
+        },
+      }
+    </script>
+    <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.150.1/examples/jsm/"
+        }
+      }
+    </script>
+</head>
+<body>
+    <div id="loading-screen">
+        <div>Loading Premium 3D Solar System...</div>
+        <div id="loading-progress">Initializing...</div>
+    </div>
+
+    <canvas id="solar-canvas"></canvas>
+
+    <!-- Modal & controls are unchanged -->
+
+    <script type="module">
+      import * as THREE from 'three';
+      import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+      // Assume previous variables and setup exist here ...
+
+      function animate() {
+          if (assetsLoaded < totalAssets || !renderer) {
+              requestAnimationFrame(animate);
+              return;
+          }
+          renderer.info.autoReset = true;
+
+          requestAnimationFrame(animate);
+          const elapsedTime = clock.getElapsedTime();
+          const deltaTime = clock.getDelta();
+
+          // Corrected Sun rotation
+          if (sunMesh && sunMesh.userData.rotationSpeed) {
+              sunMesh.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sunMesh.userData.rotationSpeed * deltaTime);
+          }
+
+          // Remaining animation logic...
+
+          controls.update();
+          renderer.render(scene, camera);
+      }
+
+      // Replace #bg with #solar-canvas throughout script
+      // Fix updateLoadingProgress
+      function updateLoadingProgress(assetName = 'asset') {
+          assetsLoaded = Math.min(assetsLoaded + 1, totalAssets);
+          const progress = Math.round((assetsLoaded / totalAssets) * 100);
+          loadingProgress.textContent = `Loading assets... ${progress}%`;
+          if (assetsLoaded >= totalAssets) {
+              loadingScreen.style.display = 'none';
+              if (renderer && !renderer.info.autoReset) {
+                 animate();
+              }
+          }
+      }
+    </script>
+</body>
+</html>

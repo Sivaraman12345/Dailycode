@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Premium 3D Solar System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      @font-face {
+        font-family: 'LucideIcons';
+        src: url(https://cdn.jsdelivr.net/npm/lucide-static@latest/font/Lucide.ttf) format('truetype');
+      }
+      .lucide {
+        font-family: 'LucideIcons';
+        font-size: 1.5rem;
+        line-height: 1;
+      }
+      body {
+        margin: 0;
+        overflow: hidden;
+        background-color: #000000; /* Black background */
+        font-family: 'Inter', sans-serif;
+        color: #fff;
+      }
+      #info-modal {
+        z-index: 100;
+      }
+      canvas {
+        display: block;
+        position: fixed;
+        top: 0;
+        left: 0;
+        z-index: 1;
+      }
+      #loading-screen {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background-color: #000000;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          align-items: center;
+          z-index: 200;
+          color: white;
+          font-size: 1.5rem;
+          text-align: center;
+      }
+      #loading-progress {
+          margin-top: 1rem;
+          font-size: 1rem;
+          color: #ccc;
+      }
+      /* Styling for optional controls */
+      #controls-container {
+          position: fixed;
+          bottom: 10px;
+          left: 10px;
+          background-color: rgba(0, 0, 0, 0.5);
+          padding: 8px;
+          border-radius: 8px;
+          z-index: 50;
+          color: white;
+          font-size: 0.8rem;
+      }
+       #controls-container label {
+           margin-right: 5px;
+           vertical-align: middle;
+       }
+       #controls-container input {
+           vertical-align: middle;
+       }
+    </style>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+            },
+          },
+        },
+      }
+    </script>
+    <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.150.1/examples/jsm/"
+        }
+      }
+    </script>
+</head>
+<body>
+    <div id="loading-screen">
+        <div>Loading Premium 3D Solar System...</div>
+        <div id="loading-progress">Initializing...</div>
+    </div>
+
+    <canvas id="bg"></canvas>
+
+    <div id="info-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 hidden">
+        <div class="bg-gradient-to-br from-gray-900 via-purple-900 to-blue-900 p-6 md:p-8 rounded-lg shadow-2xl max-w-md w-full relative border-2 border-purple-500">
+            <button id="close-modal" class="absolute top-3 right-3 text-gray-400 hover:text-white focus:outline-none">
+                <span class="lucide">&#xe99f;</span>
+            </button>
+            <h2 id="modal-title" class="text-3xl font-bold text-yellow-400 mb-4">Planet Name</h2>
+            <img id="modal-image" src="https://placehold.co/400x200/334155/e2e8f0?text=Planet+View" alt="Planet Image" class="w-full h-40 object-cover rounded-md mb-4 border border-purple-600" onerror="this.onerror=null; this.src='https://placehold.co/400x200/334155/e2e8f0?text=Image+Error';">
+            <p id="modal-description" class="text-gray-300 mb-4 text-sm">Description goes here...</p>
+            <h3 class="text-xl font-semibold text-yellow-300 mb-2">Fun Facts:</h3>
+            <ul id="modal-facts" class="list-disc list-inside text-gray-300 space-y-1 text-sm">
+                <li>Fact 1...</li>
+                <li>Fact 2...</li>
+            </ul>
+        </div>
+    </div>
+
+     <div id="controls-container">
+        <label for="toggle-trails">Show Trails:</label>
+        <input type="checkbox" id="toggle-trails" checked>
+        <label for="toggle-orbits" style="margin-left: 15px;">Show Orbits:</label>
+        <input type="checkbox" id="toggle-orbits" checked>
+    </div>
+
+
+    <script type="module">
+      // --- Imports ---
+      import * as THREE from 'three';
+      import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+      // --- Constants ---
+      const TRAIL_POINTS = 60; // Reduced trail points for performance
+      const TEXTURE_PATH = 'https://threejs.org/examples/textures/'; // Base path for textures
+
+      // --- Scene Setup ---
+      let scene, camera, renderer, controls, textureLoader, cubeTextureLoader;
+      let sunMesh, sunGlow, pointLight, hemisphereLight;
+      const planets = []; // Stores { mesh: THREE.Mesh, data: object, trail: THREE.Line, trailGeometry: THREE.BufferGeometry, orbit: THREE.Line }
+      const clock = new THREE.Clock();
+      const raycaster = new THREE.Raycaster();
+      const mouse = new THREE.Vector2();
+      let assetsLoaded = 0;
+      let totalAssets = 0; // Will be calculated based on data
+
+      // --- Data (Axial Tilt added in degrees, converted later) ---
+      const solarSystemData = {
+           sun: { name: "The Sun", radius: 15, color: 0xffddaa, emissive: 0xffcc33, orbitRadius: 0, orbitalSpeed: 0, rotationSpeed: 0.001, axialTilt: 7.25, textureUrl: `${TEXTURE_PATH}planets/sun.jpg`, glowTextureUrl: `${TEXTURE_PATH}sprites/disc.png`, description: "The Sun is a giant star...", facts: ["4.5 billion years old!", "1.3 million Earths fit inside.", "Light takes 8 mins to Earth."] },
+           mercury: { name: "Mercury", radius: 1, color: 0xaaaaaa, semiMajorAxis: 30, eccentricity: 0.206, orbitalSpeed: 0.04 * 1.2, rotationSpeed: 0.01, axialTilt: 0.03, textureUrl: `${TEXTURE_PATH}planets/mercury.jpg`, description: "Mercury is the smallest planet...", facts: ["Year: 88 Earth days.", "Extreme temperatures.", "No moons."] },
+           venus: { name: "Venus", radius: 1.8, color: 0xe5a56d, semiMajorAxis: 50, eccentricity: 0.007, orbitalSpeed: 0.025 * 1.1, rotationSpeed: 0.005, axialTilt: 177.4, textureUrl: `${TEXTURE_PATH}planets/venus_atmosphere.jpg`, bumpMapUrl: `${TEXTURE_PATH}planets/venus_surface.jpg`, bumpScale: 0.05, description: "Venus is the second planet...", facts: ["Earth's 'sister planet'.", "Hottest planet (465°C).", "Spins backwards (high tilt)."] },
+           earth: { name: "Earth", radius: 2, color: 0x6fa5db, semiMajorAxis: 75, eccentricity: 0.017, orbitalSpeed: 0.015, rotationSpeed: 0.02, axialTilt: 23.44, textureUrl: `${TEXTURE_PATH}planets/earth_atmos_2048.jpg`, bumpMapUrl: `${TEXTURE_PATH}planets/earth_topology_512.jpg`, bumpScale: 0.05, specularMapUrl: `${TEXTURE_PATH}planets/earth_specular_2048.jpg`, description: "Our home! Earth is the third planet...", facts: ["71% water.", "One moon.", "Life exists here!"] },
+           mars: { name: "Mars", radius: 1.2, color: 0xc1440e, semiMajorAxis: 100, eccentricity: 0.093, orbitalSpeed: 0.01 * 0.9, rotationSpeed: 0.018, axialTilt: 25.19, textureUrl: `${TEXTURE_PATH}planets/mars.jpg`, bumpMapUrl: `${TEXTURE_PATH}planets/mars_topo_1k.jpg`, bumpScale: 0.1, description: "Mars is the fourth planet...", facts: ["'Red Planet'.", "Tallest volcano: Olympus Mons.", "Two moons."] },
+           jupiter: { name: "Jupiter", radius: 8, color: 0xb89d7c, semiMajorAxis: 160, eccentricity: 0.048, orbitalSpeed: 0.005, rotationSpeed: 0.05, axialTilt: 3.13, textureUrl: `${TEXTURE_PATH}planets/jupiter.jpg`, description: "Jupiter is the fifth planet...", facts: ["Largest planet.", "Great Red Spot (storm).", "Many moons (79+)."] },
+           saturn: { name: "Saturn", radius: 7, color: 0xc4b88a, semiMajorAxis: 220, eccentricity: 0.054, orbitalSpeed: 0.003, rotationSpeed: 0.045, axialTilt: 26.73, hasRings: true, textureUrl: `${TEXTURE_PATH}planets/saturn.jpg`, ringTextureUrl: `${TEXTURE_PATH}planets/saturn_ring.png`, description: "Saturn is the sixth planet...", facts: ["Famous for rings.", "Least dense planet.", "Many moons (82+)."] },
+           uranus: { name: "Uranus", radius: 5, color: 0x76c4c4, semiMajorAxis: 280, eccentricity: 0.047, orbitalSpeed: 0.002, rotationSpeed: 0.03, axialTilt: 97.77, textureUrl: `${TEXTURE_PATH}planets/uranus.jpg`, description: "Uranus is the seventh planet...", facts: ["Ice giant.", "Rotates on its side (high tilt).", "Faint rings, 27 moons."] },
+           neptune: { name: "Neptune", radius: 4.8, color: 0x3b5998, semiMajorAxis: 340, eccentricity: 0.009, orbitalSpeed: 0.001, rotationSpeed: 0.032, axialTilt: 28.32, textureUrl: `${TEXTURE_PATH}planets/neptune.jpg`, description: "Neptune is the eighth planet...", facts: ["Deep blue color.", "Strongest winds.", "14 moons."] }
+      };
+      // Calculate total assets for loading bar (including skybox)
+      totalAssets = 1; // Start with 1 for skybox
+      Object.values(solarSystemData).forEach(data => {
+        if (data.textureUrl) totalAssets++;
+        if (data.bumpMapUrl) totalAssets++;
+        if (data.specularMapUrl) totalAssets++;
+        if (data.ringTextureUrl) totalAssets++;
+        if (data.glowTextureUrl) totalAssets++;
+      });
+
+
+      // --- DOM Elements ---
+      const modal = document.getElementById('info-modal');
+      const closeModalButton = document.getElementById('close-modal');
+      const modalTitle = document.getElementById('modal-title');
+      const modalImage = document.getElementById('modal-image');
+      const modalDescription = document.getElementById('modal-description');
+      const modalFactsList = document.getElementById('modal-facts');
+      const defaultImageUrl = 'https://placehold.co/400x200/334155/e2e8f0?text=Planet';
+      const loadingScreen = document.getElementById('loading-screen');
+      const loadingProgress = document.getElementById('loading-progress');
+      const trailsCheckbox = document.getElementById('toggle-trails');
+      const orbitsCheckbox = document.getElementById('toggle-orbits');
+
+
+      // --- Utility Functions ---
+      function updateLoadingProgress(assetName = 'asset') {
+          assetsLoaded++;
+          const progress = Math.round((assetsLoaded / totalAssets) * 100);
+          // console.log(`Loaded ${assetName} (${assetsLoaded}/${totalAssets})`); // Debug logging
+          loadingProgress.textContent = `Loading assets... ${progress}%`;
+          if (assetsLoaded >= totalAssets) {
+              // console.log("All assets loaded, hiding screen and starting animation."); // Debug logging
+              loadingScreen.style.display = 'none';
+              if (renderer && !renderer.info.autoReset) { // Start animation if not already running
+                 animate();
+              }
+          }
+      }
+
+      // Convert degrees to radians
+      function degToRad(degrees) {
+          return degrees * (Math.PI / 180);
+      }
+
+      // --- Initialization Function ---
+      function init() {
+          try {
+              textureLoader = new THREE.TextureLoader();
+              cubeTextureLoader = new THREE.CubeTextureLoader();
+
+              // Scene
+              scene = new THREE.Scene();
+
+              // Camera (Adjusted FOV and clipping planes)
+              camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 5000); // Near: 1, Far: 5000
+              camera.position.set(0, 200, 450); // Adjusted starting position
+
+              // Renderer (Enabled shadows, performance preference)
+              const canvas = document.querySelector('#bg');
+              renderer = new THREE.WebGLRenderer({
+                  canvas: canvas,
+                  antialias: true,
+                  powerPreference: "high-performance" // Request high performance GPU if available
+              });
+              renderer.setSize(window.innerWidth, window.innerHeight);
+              renderer.setPixelRatio(window.devicePixelRatio);
+              renderer.shadowMap.enabled = true; // Enable shadows
+              renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Softer shadows
+              renderer.info.autoReset = false; // Manual animation start control
+
+              // --- Lighting (Hemisphere + Point light with shadow) ---
+              hemisphereLight = new THREE.HemisphereLight(0xccccff, 0x333388, 0.5); // Sky, Ground, Intensity
+              scene.add(hemisphereLight);
+
+              pointLight = new THREE.PointLight(0xffffff, 1.2, 3000); // Intensity, Distance
+              pointLight.castShadow = true; // Enable shadow casting
+              pointLight.shadow.mapSize.width = 1024; // Shadow map resolution (lower for performance)
+              pointLight.shadow.mapSize.height = 1024;
+              pointLight.shadow.camera.near = 10; // Adjust shadow camera frustum
+              pointLight.shadow.camera.far = 2000;
+              scene.add(pointLight);
+
+              // Controls (Adjusted max distance)
+              controls = new OrbitControls(camera, renderer.domElement);
+              controls.enableDamping = true;
+              controls.dampingFactor = 0.05;
+              controls.screenSpacePanning = false;
+              controls.minDistance = 10; // Allow closer zoom
+              controls.maxDistance = 2000; // Increased max zoom out distance
+
+              // --- Skybox ---
+              const skyboxPath = `${TEXTURE_PATH}cube/milkyway/`;
+              const skyboxUrls = [
+                  skyboxPath + 'dark-s_px.jpg', skyboxPath + 'dark-s_nx.jpg',
+                  skyboxPath + 'dark-s_py.jpg', skyboxPath + 'dark-s_ny.jpg',
+                  skyboxPath + 'dark-s_pz.jpg', skyboxPath + 'dark-s_nz.jpg'
+              ];
+              cubeTextureLoader.load(skyboxUrls, (cubeTexture) => {
+                  scene.background = cubeTexture;
+                  updateLoadingProgress('skybox');
+              }, undefined, (error) => {
+                  console.error("Error loading skybox:", error);
+                  scene.background = new THREE.Color(0x000010); // Fallback background
+                  updateLoadingProgress('skybox (failed)');
+              });
+
+
+              // --- Create Celestial Bodies ---
+              createSun();
+              createPlanets();
+
+              // Event Listeners
+              window.addEventListener('resize', onWindowResize);
+              window.addEventListener('click', onClick);
+              trailsCheckbox.addEventListener('change', toggleTrails);
+              orbitsCheckbox.addEventListener('change', toggleOrbits);
+
+
+              // Initial progress update
+              loadingProgress.textContent = `Loading assets... 0%`;
+              // Animation loop started via updateLoadingProgress when assets finish
+
+          } catch (error) {
+              console.error("Error initializing 3D scene:", error);
+              loadingScreen.innerHTML = `<div>Error initializing scene: ${error.message}.<br>Please check console.</div>`;
+          }
+      }
+
+      // --- Create Sun with Glow ---
+      function createSun() {
+          const data = solarSystemData.sun;
+          const geometry = new THREE.SphereGeometry(data.radius, 64, 64);
+          const material = new THREE.MeshBasicMaterial({
+              map: null, // Texture loaded below
+              color: data.color,
+              emissive: data.emissive,
+              emissiveIntensity: 1
+          });
+
+          // Load texture
+          textureLoader.load(data.textureUrl,
+              (texture) => {
+                  material.map = texture;
+                  material.color = 0xffffff;
+                  material.needsUpdate = true;
+                  updateLoadingProgress(`Sun texture`);
+              },
+              undefined,
+              (error) => {
+                  console.error(`Error loading texture for Sun: ${data.textureUrl}`, error);
+                  updateLoadingProgress(`Sun texture (failed)`);
+              }
+          );
+
+          sunMesh = new THREE.Mesh(geometry, material);
+          sunMesh.userData = { id: 'sun', name: data.name, ...data };
+          // Apply axial tilt (though Sun's rotation isn't very noticeable here)
+          sunMesh.rotation.z = degToRad(data.axialTilt); // Tilt relative to orbital plane (ecliptic)
+          scene.add(sunMesh);
+          pointLight.position.copy(sunMesh.position); // Light originates from the sun center
+
+          // --- Sun Glow ---
+          const glowMaterial = new THREE.SpriteMaterial({
+              map: null, // Loaded below
+              color: 0xffddaa,
+              transparent: true,
+              opacity: 0.6,
+              blending: THREE.AdditiveBlending // Good for glows
+          });
+          textureLoader.load(data.glowTextureUrl,
+              (texture) => {
+                  glowMaterial.map = texture;
+                  glowMaterial.needsUpdate = true;
+                  updateLoadingProgress('Sun glow texture');
+              }, undefined, (error) => {
+                  console.error(`Error loading sun glow texture: ${data.glowTextureUrl}`, error);
+                  updateLoadingProgress('Sun glow texture (failed)');
+              });
+
+          sunGlow = new THREE.Sprite(glowMaterial);
+          sunGlow.scale.set(data.radius * 4, data.radius * 4, 1); // Scale the glow relative to sun size
+          sunMesh.add(sunGlow); // Add glow as child of sun mesh
+      }
+
+      // --- Create Planets ---
+      function createPlanets() {
+          Object.keys(solarSystemData).forEach(key => {
+              if (key === 'sun') return;
+
+              const data = solarSystemData[key];
+              const planetGeometry = new THREE.SphereGeometry(data.radius, 32, 32);
+              const planetMaterial = new THREE.MeshStandardMaterial({
+                  color: data.color,
+                  roughness: 0.85, // Slightly rougher default
+                  metalness: 0.1
+              });
+
+              // Load Base Texture (Map)
+              if (data.textureUrl) {
+                  textureLoader.load(data.textureUrl,
+                      (texture) => {
+                          planetMaterial.map = texture;
+                          planetMaterial.color = 0xffffff;
+                          planetMaterial.needsUpdate = true;
+                          updateLoadingProgress(`${data.name} texture`);
+                      }, undefined, (error) => {
+                          console.error(`Error loading texture for ${data.name}: ${data.textureUrl}`, error);
+                          updateLoadingProgress(`${data.name} texture (failed)`);
+                      });
+              } else { updateLoadingProgress(`${data.name} texture (none)`); }
+
+              // Load Bump Map
+              if (data.bumpMapUrl) {
+                  textureLoader.load(data.bumpMapUrl, (texture) => {
+                      planetMaterial.bumpMap = texture;
+                      planetMaterial.bumpScale = data.bumpScale || 0.05;
+                      planetMaterial.needsUpdate = true;
+                      updateLoadingProgress(`${data.name} bump map`);
+                  }, undefined, (error) => {
+                      console.error(`Error loading bump map for ${data.name}: ${data.bumpMapUrl}`, error);
+                      updateLoadingProgress(`${data.name} bump map (failed)`);
+                  });
+              } else if (data.bumpMapUrl !== undefined) { updateLoadingProgress(`${data.name} bump map (none)`); }
+
+              // Load Specular Map
+              if (data.specularMapUrl) {
+                   textureLoader.load(data.specularMapUrl, (texture) => {
+                       planetMaterial.specularMap = texture;
+                       planetMaterial.specular = new THREE.Color(0xcccccc); // Brighter specular for water/ice
+                       planetMaterial.shininess = 20; // Increase shininess
+                       planetMaterial.needsUpdate = true;
+                       updateLoadingProgress(`${data.name} specular map`);
+                   }, undefined, (error) => {
+                       console.error(`Error loading specular map for ${data.name}: ${data.specularMapUrl}`, error);
+                       updateLoadingProgress(`${data.name} specular map (failed)`);
+                   });
+              } else if (data.specularMapUrl !== undefined) { updateLoadingProgress(`${data.name} specular map (none)`); }
+
+              const planetMesh = new THREE.Mesh(planetGeometry, planetMaterial);
+              planetMesh.userData = { id: key, name: data.name, ...data };
+              planetMesh.castShadow = true; // Planet casts shadow
+              planetMesh.receiveShadow = true; // Planet receives shadow
+
+              // Apply axial tilt (Rotation around Z axis before placing in orbit)
+              // We tilt around Z because the orbit is in the XZ plane.
+              // If orbit plane changes, tilt axis might need adjustment.
+              planetMesh.rotation.z = degToRad(data.axialTilt);
+
+              // Initial position calculation
+              const E = 0;
+              planetMesh.position.x = data.semiMajorAxis * (Math.cos(E) - data.eccentricity);
+              planetMesh.position.z = data.semiMajorAxis * Math.sqrt(1 - data.eccentricity * data.eccentricity) * Math.sin(E);
+              scene.add(planetMesh);
+
+              // --- Create Orbit Ellipse ---
+              const curve = new THREE.EllipseCurve(
+                  0, 0,
+                  data.semiMajorAxis, data.semiMajorAxis * Math.sqrt(1 - data.eccentricity * data.eccentricity),
+                  0, 2 * Math.PI, false, 0
+              );
+              const points = curve.getPoints(128);
+              const orbitGeometry = new THREE.BufferGeometry().setFromPoints(points);
+              const orbitMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.15, transparent: true }); // Fainter orbits
+              const orbitEllipse = new THREE.Line(orbitGeometry, orbitMaterial);
+              orbitEllipse.rotation.x = Math.PI / 2;
+              scene.add(orbitEllipse);
+
+              // --- Create Trail ---
+              const trailGeometry = new THREE.BufferGeometry();
+              const trailPositions = new Float32Array(TRAIL_POINTS * 3);
+              const trailColors = new Float32Array(TRAIL_POINTS * 3);
+              for (let i = 0; i < TRAIL_POINTS; i++) { // Initialize off-screen or at start pos
+                  trailPositions[i * 3] = planetMesh.position.x;
+                  trailPositions[i * 3 + 1] = planetMesh.position.y;
+                  trailPositions[i * 3 + 2] = planetMesh.position.z;
+                  trailColors[i * 3] = 0; trailColors[i * 3 + 1] = 0; trailColors[i * 3 + 2] = 0; // Start invisible
+              }
+              trailGeometry.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
+              trailGeometry.setAttribute('color', new THREE.BufferAttribute(trailColors, 3));
+              const trailMaterial = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending });
+              const trailLine = new THREE.Line(trailGeometry, trailMaterial);
+              trailLine.visible = trailsCheckbox.checked; // Set initial visibility
+              scene.add(trailLine);
+
+              planets.push({ mesh: planetMesh, data: data, trail: trailLine, trailGeometry: trailGeometry, orbit: orbitEllipse });
+
+              // --- Special: Add Saturn's Rings ---
+              if (data.hasRings) {
+                  const ringInnerRadius = data.radius * 1.2;
+                  const ringOuterRadius = data.radius * 2.2;
+                  // Use PlaneGeometry for better texture mapping on rings
+                  const ringGeometry = new THREE.RingGeometry(ringInnerRadius, ringOuterRadius, 64);
+
+                  const ringMaterial = new THREE.MeshBasicMaterial({
+                      side: THREE.DoubleSide,
+                      map: null, // Loaded below
+                      opacity: 0.8, // Slightly more opaque
+                      transparent: true,
+                      color: 0xffffff // Base color if texture fails
+                  });
+
+                  if (data.ringTextureUrl) {
+                      textureLoader.load(data.ringTextureUrl,
+                          (texture) => {
+                              ringMaterial.map = texture;
+                              ringMaterial.needsUpdate = true;
+                              updateLoadingProgress(`${data.name} ring texture`);
+                          }, undefined, (error) => {
+                              console.error(`Error loading ring texture for ${data.name}: ${data.ringTextureUrl}`, error);
+                              ringMaterial.color = 0xaaaa88; // Fallback color
+                              updateLoadingProgress(`${data.name} ring texture (failed)`);
+                          });
+                  } else if (data.ringTextureUrl !== undefined) {
+                       ringMaterial.color = 0xaaaa88;
+                       updateLoadingProgress(`${data.name} ring texture (none)`);
+                  }
+
+                  const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
+                  ringMesh.receiveShadow = true; // Rings can receive shadows
+                  // Tilt rings relative to the planet's axial tilt
+                  ringMesh.rotation.x = Math.PI / 2; // Align with XY plane first
+
+                  // Add rings as a child, they will inherit the planet's tilt and position
+                  planetMesh.add(ringMesh);
+              } else if (data.hasRings !== undefined) { updateLoadingProgress(`${data.name} rings (none)`); }
+          });
+      }
+
+      // --- Starfield (Removed, replaced by Skybox) ---
+      // function addStarfield() { ... } // No longer needed
+
+      // --- Toggle Functions ---
+       function toggleTrails() {
+           const show = trailsCheckbox.checked;
+           planets.forEach(p => {
+               if (p.trail) p.trail.visible = show;
+           });
+       }
+
+       function toggleOrbits() {
+           const show = orbitsCheckbox.checked;
+           planets.forEach(p => {
+               if (p.orbit) p.orbit.visible = show;
+           });
+       }
+
+
+      // --- Event Handlers ---
+      function onWindowResize() {
+          camera.aspect = window.innerWidth / window.innerHeight;
+          camera.updateProjectionMatrix();
+          renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+
+      function onClick(event) {
+          // Prevent clicks on UI elements from triggering raycasting
+          if (event.target.closest('#info-modal') || event.target.closest('#controls-container')) {
+              return;
+          }
+
+          mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+          mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+          raycaster.setFromCamera(mouse, camera);
+          const intersects = raycaster.intersectObjects([...planets.map(p => p.mesh), sunMesh]);
+
+          if (intersects.length > 0) {
+              const clickedObject = intersects[0].object;
+              if (clickedObject.userData && clickedObject.userData.id) {
+                  if (modal.classList.contains('hidden') || modalTitle.textContent !== clickedObject.userData.name) {
+                      showPlanetInfo(clickedObject.userData.id);
+                  }
+              }
+          } else {
+              if (!modal.classList.contains('hidden')) {
+                  closeModal();
+              }
+          }
+      }
+
+      // --- Modal Functions ---
+      function showPlanetInfo(planetId) {
+          const data = solarSystemData[planetId];
+          if (!data) return;
+          modalTitle.textContent = data.name;
+          modalDescription.textContent = data.description;
+          const imageUrl = data.textureUrl || (defaultImageUrl + '+' + data.name.replace(' ', '+'));
+          modalImage.src = imageUrl;
+          modalImage.alt = data.name + " image";
+          modalFactsList.innerHTML = '';
+          data.facts.forEach(fact => {
+              const li = document.createElement('li');
+              li.textContent = fact;
+              modalFactsList.appendChild(li);
+          });
+          modal.classList.remove('hidden');
+          modal.classList.add('flex');
+      }
+
+      function closeModal() {
+          modal.classList.add('hidden');
+          modal.classList.remove('flex');
+      }
+
+      // --- Animation Loop ---
+      function animate() {
+          // Guard against running before initialization/loading is complete
+          if (assetsLoaded < totalAssets || !renderer) {
+              requestAnimationFrame(animate);
+              return;
+          }
+          renderer.info.autoReset = true; // Allow normal operation
+
+          requestAnimationFrame(animate);
+          const elapsedTime = clock.getElapsedTime();
+          const deltaTime = clock.getDelta(); // Time since last frame
+
+          // Animate Sun (Rotation around its tilted axis)
+          if (sunMesh) {
+              // Rotate around the world Y axis for general spin
+              sunMesh.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), data.rotationSpeed * deltaTime);
+               // Keep glow oriented towards camera (Sprite default behavior)
+          }
+
+          // Animate Planets
+          planets.forEach(planetData => {
+              const { mesh, data, trail, trailGeometry } = planetData;
+              if (!data || data.id === 'sun') return;
+
+              // --- Elliptical Orbit Calculation ---
+              const a = data.semiMajorAxis;
+              const e = data.eccentricity;
+              const speed = data.orbitalSpeed;
+              const M = speed * elapsedTime;
+              let E = M + e * Math.sin(M);
+              for(let i=0; i<3; i++) { E = M + e * Math.sin(E); } // Refine E
+              mesh.position.x = a * (Math.cos(E) - e);
+              mesh.position.z = a * Math.sqrt(1 - e * e) * Math.sin(E);
+              mesh.position.y = 0;
+
+              // --- Rotation around tilted axis ---
+              // Rotate around the planet's local Y-axis (which is tilted due to initial rotation.z)
+              mesh.rotateY(data.rotationSpeed); // Simplified rotation speed
+
+              // --- Update Trail ---
+              if (trail.visible) {
+                  const positions = trailGeometry.attributes.position.array;
+                  const colors = trailGeometry.attributes.color.array;
+                  // Shift points back
+                  for (let i = TRAIL_POINTS - 1; i > 0; i--) {
+                      positions[i * 3] = positions[(i - 1) * 3];
+                      positions[i * 3 + 1] = positions[(i - 1) * 3 + 1];
+                      positions[i * 3 + 2] = positions[(i - 1) * 3 + 2];
+                      colors[i * 3] = colors[(i - 1) * 3];
+                      colors[i * 3 + 1] = colors[(i - 1) * 3 + 1];
+                      colors[i * 3 + 2] = colors[(i - 1) * 3 + 2];
+                  }
+                  // Add new point
+                  positions[0] = mesh.position.x;
+                  positions[1] = mesh.position.y;
+                  positions[2] = mesh.position.z;
+                  // Update colors
+                  const baseColor = new THREE.Color(data.color || 0xffffff); // Use planet color for trail start
+                  for (let i = 0; i < TRAIL_POINTS; i++) {
+                      const alpha = Math.max(0, 1.0 - (i / TRAIL_POINTS) * 1.2); // Slightly adjusted fade
+                      colors[i * 3] = baseColor.r * alpha;
+                      colors[i * 3 + 1] = baseColor.g * alpha;
+                      colors[i * 3 + 2] = baseColor.b * alpha;
+                  }
+                  trailGeometry.attributes.position.needsUpdate = true;
+                  trailGeometry.attributes.color.needsUpdate = true;
+              }
+          });
+
+          controls.update(); // Update camera controls
+          renderer.render(scene, camera); // Render the scene
+      }
+
+      // --- Start ---
+      window.onload = init;
+
+      // --- Modal & Controls Event Listeners ---
+      closeModalButton.addEventListener('click', closeModal);
+      document.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape' && !modal.classList.contains('hidden')) {
+              closeModal();
+          }
+      });
+       modalImage.onerror = function() {
+          console.warn("Failed to load modal image:", this.src);
+          this.src = defaultImageUrl + '+' + modalTitle.textContent.replace(' ', '+');
+          this.alt = modalTitle.textContent + " (Image unavailable)";
+        };
+
+    </script>
+</body>
+</html>
